@@ -737,9 +737,9 @@ class StructuralSynthesisApp:
                 tkey = arch["topology_key"]
                 if tkey not in cache:
                     train_res = train_dag_adam(arch, p["X_tr_norm"], p["y_tr"], epochs=220, lr=0.035, seed=len(cache))
-                    complexity = 1e-4 * p["max_err"] * (
-                        len(arch["active_neurons"]) / max(1, max_neurons)
-                        + len(arch["active_edges"]) / max(1, chrom_len)
+                    complexity = 0.15 * p["max_err"] * (
+                            0.7 * len(arch["active_neurons"]) / max(1, max_neurons)
+                            + 0.3 * len(arch["active_edges"]) / max(1, chrom_len)
                     )
                     fit_loss = train_res[metric_key] + complexity
                     cache[tkey] = {
@@ -778,6 +778,29 @@ class StructuralSynthesisApp:
             order = np.argsort([r["fitness"] for r in eval_results])
             gen_best = eval_results[order[0]]
 
+            # Якщо є мережі, що пройшли поріг max_err, обираємо найпростішу з них
+            passing = [r for r in valid_items if r["metric"] <= p["max_err"]]
+            if passing:
+                best_overall = min(
+                    passing,
+                    key=lambda r: (
+                        len(r["arch"]["active_neurons"]),
+                        len(r["arch"]["active_edges"]),
+                        r["metric"],
+                    ),
+                )
+                if not intermediate_rows or intermediate_rows[-1]["layer_str"] != best_overall["arch"]["layer_str"]:
+                    intermediate_rows.append({
+                        "gen": gen + 1,
+                        "layer_str": best_overall["arch"]["layer_str"],
+                        "neurons": len(best_overall["arch"]["active_neurons"]),
+                        "edges": len(best_overall["arch"]["active_edges"]),
+                        "rmse": best_overall["train"]["rmse"],
+                        "mse": best_overall["train"]["mse"],
+                        "mae": best_overall["train"]["mae"],
+                        "fitness": best_overall["fitness"],
+                    })
+
             if not intermediate_rows and gen_best["valid"]:
                 intermediate_rows.append({
                     "gen": gen + 1,
@@ -811,7 +834,7 @@ class StructuralSynthesisApp:
                     "avg_hist": list(avg_hist),
                 })
 
-            if best_overall and best_overall["valid"] and best_overall["metric"] <= p["max_err"]:
+            if passing:
                 break
 
             new_pop = [eval_results[i]["chrom"].copy() for i in order[:p["elite"]]]
